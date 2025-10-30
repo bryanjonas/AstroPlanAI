@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  # AstroPlanAI CLI application
+  # Connects to external VLLM server running on host machine
+  astroplanai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: astroplan-app
+    volumes:
+      - ./workspace:/workspace
+      - ./examples:/app/examples:ro
+    environment:
+      # Use host.docker.internal to connect to VLLM running on host machine
+      # On Linux, use --add-host=host.docker.internal:host-gateway when running docker-compose
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://host.docker.internal:8000/v1}
+      - VLLM_API_KEY=${VLLM_API_KEY:-not_required}
+      - VLLM_MODEL=${VLLM_MODEL}
+      - AGENT_TIMEOUT_SECONDS=${AGENT_TIMEOUT_SECONDS:-60}
+      - AGENT_TEMPERATURE=${AGENT_TEMPERATURE:-0.7}
+      - AGENT_MAX_TOKENS=${AGENT_MAX_TOKENS:-4096}
+    # For Linux: add host.docker.internal mapping to reach host machine
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    stdin_open: true
+    tty: true
+    entrypoint: ["/app/docker-entrypoint.sh"]
+    command: ["/bin/bash"]
+
+  # AstroPlanAI Web UI (Streamlit)
+  # Connects to external VLLM server running on host machine
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile.webapp
+    container_name: astroplan-web
+    ports:
+      - "8501:8501"
+    volumes:
+      # Mount webapp and src for auto-reload on changes
+      - ./webapp:/app/webapp
+      - ./src:/app/src
+    environment:
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://host.docker.internal:8000/v1}
+      - VLLM_API_KEY=${VLLM_API_KEY:-not_required}
+      - VLLM_MODEL=${VLLM_MODEL}
+      - AGENT_TIMEOUT_SECONDS=${AGENT_TIMEOUT_SECONDS:-60}
+      - AGENT_TEMPERATURE=${AGENT_TEMPERATURE:-0.7}
+      - AGENT_MAX_TOKENS=${AGENT_MAX_TOKENS:-4096}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

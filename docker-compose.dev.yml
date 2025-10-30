@@ -1,0 +1,60 @@
+# Development docker-compose with hot-reload and debugging
+# Connects to external VLLM server running on host machine
+version: '3.8'
+
+services:
+  astroplanai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: astroplan-app-dev
+    volumes:
+      # Mount source code for hot-reload during development
+      - ./src:/app/src:ro
+      - ./examples:/app/examples:ro
+      - ./workspace:/workspace
+      - ./tests:/app/tests:ro
+    environment:
+      # Use host.docker.internal to connect to VLLM running on host machine
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://host.docker.internal:8000/v1}
+      - VLLM_API_KEY=${VLLM_API_KEY:-not_required}
+      - VLLM_MODEL=${VLLM_MODEL}
+      - AGENT_TIMEOUT_SECONDS=${AGENT_TIMEOUT_SECONDS:-60}
+      - AGENT_TEMPERATURE=${AGENT_TEMPERATURE:-0.7}
+      - AGENT_MAX_TOKENS=${AGENT_MAX_TOKENS:-4096}
+      - PYTHONPATH=/app/src
+      # Enable Python development mode
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    # For Linux: add host.docker.internal mapping to reach host machine
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    stdin_open: true
+    tty: true
+    entrypoint: ["/app/docker-entrypoint.sh"]
+    command: ["/bin/bash"]
+
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile.webapp
+    container_name: astroplan-web-dev
+    ports:
+      - "8501:8501"
+    volumes:
+      # Mount source code for hot-reload
+      - ./src:/app/src
+      - ./webapp:/app/webapp
+    environment:
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://host.docker.internal:8000/v1}
+      - VLLM_API_KEY=${VLLM_API_KEY:-not_required}
+      - VLLM_MODEL=${VLLM_MODEL}
+      - AGENT_TIMEOUT_SECONDS=${AGENT_TIMEOUT_SECONDS:-60}
+      - AGENT_TEMPERATURE=${AGENT_TEMPERATURE:-0.7}
+      - AGENT_MAX_TOKENS=${AGENT_MAX_TOKENS:-4096}
+      - PYTHONPATH=/app/src
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["streamlit", "run", "webapp/app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.runOnSave=true"]
