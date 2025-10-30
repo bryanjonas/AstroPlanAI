@@ -531,19 +531,21 @@ def main():
                 search_name = st.text_input("Target Name (e.g., M31, NGC 7000)")
 
                 if st.button("Search", key="name_search"):
-                    target = db.get_target_by_name(search_name)
+                    targets = db.search_by_name(search_name)
 
-                    if target:
-                        st.success(f"Found: {target.name} - {target.common_name}")
-                        st.markdown(f"""
-                        - **Type:** {target.target_type.value}
-                        - **Magnitude:** {target.magnitude}
-                        - **Size:** {target.size_arcmin} arcmin
-                        - **Coordinates:** RA {target.ra}°, Dec {target.dec}°
-                        - **Best Months:** {', '.join([datetime(2000, m, 1).strftime('%b') for m in target.best_months])}
-                        """)
+                    if targets:
+                        st.success(f"Found {len(targets)} matching target(s)")
+                        for target in targets:
+                            with st.expander(f"{target.name} - {target.common_name}"):
+                                st.markdown(f"""
+                                - **Type:** {target.target_type.value}
+                                - **Magnitude:** {target.magnitude}
+                                - **Size:** {target.size_arcmin} arcmin
+                                - **Coordinates:** RA {target.ra}°, Dec {target.dec}°
+                                - **Best Months:** {', '.join([datetime(2000, m, 1).strftime('%b') for m in target.best_months])}
+                                """)
                     else:
-                        st.warning(f"Target '{search_name}' not found in database")
+                        st.warning(f"No targets found matching '{search_name}'")
 
             else:  # By Type
                 from astroplanai.tools.target_database import TargetType
