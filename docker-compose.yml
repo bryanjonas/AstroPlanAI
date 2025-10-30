@@ -19,7 +19,7 @@ services:
       - VLLM_MODEL=${VLLM_MODEL}
       - AGENT_TIMEOUT_SECONDS=${AGENT_TIMEOUT_SECONDS:-60}
       - AGENT_TEMPERATURE=${AGENT_TEMPERATURE:-0.7}
-      - AGENT_MAX_TOKENS=${AGENT_MAX_TOKENS:-4096}
+      - AGENT_MAX_TOKENS=${AGENT_MAX_TOKENS:-2048}
     # For Linux: add host.docker.internal mapping to reach host machine
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -47,7 +47,7 @@ services:
       - VLLM_MODEL=${VLLM_MODEL}
       - AGENT_TIMEOUT_SECONDS=${AGENT_TIMEOUT_SECONDS:-60}
       - AGENT_TEMPERATURE=${AGENT_TEMPERATURE:-0.7}
-      - AGENT_MAX_TOKENS=${AGENT_MAX_TOKENS:-4096}
+      - AGENT_MAX_TOKENS=${AGENT_MAX_TOKENS:-2048}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

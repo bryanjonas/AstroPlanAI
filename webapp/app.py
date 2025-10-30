@@ -309,8 +309,27 @@ def main():
                 )
 
             except Exception as e:
-                st.error(f"❌ Error generating plan: {e}")
-                st.exception(e)
+                error_msg = str(e)
+
+                # Check for specific error types
+                if "max_tokens must be at least 1" in error_msg or "max_tokens" in error_msg and "BadRequestError" in str(type(e).__name__):
+                    st.error("❌ **Context Length Exceeded**")
+                    st.warning("""
+                    The combined prompt is too long for your model's context window.
+
+                    **Solutions:**
+                    1. **Reduce date range**: Try a shorter period (3-5 days instead of 7+)
+                    2. **Lower AGENT_MAX_TOKENS**: Set to 1024 or 1536 in your `.env` file
+                    3. **Use a larger model**: Switch to a model with bigger context window
+                    4. **Restart container**: If you changed `.env`, restart with `docker-compose restart webapp`
+
+                    Current settings can be viewed in the sidebar.
+                    """)
+                else:
+                    st.error(f"❌ Error generating plan: {e}")
+
+                with st.expander("View full error details"):
+                    st.exception(e)
 
     # ============================================
     # TAB 2: QUICK TOOLS

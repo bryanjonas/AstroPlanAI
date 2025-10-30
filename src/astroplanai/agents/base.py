@@ -51,12 +51,17 @@ class BaseAgent:
         ]
 
         # Merge kwargs with defaults
+        # Compute safe max_tokens (never negative or zero)
+        requested_max = kwargs.get("max_tokens", self.max_tokens)
+        safe_max = max(1, int(requested_max or 0))
+
         params = {
             "model": self.model,
             "messages": messages,
             "temperature": kwargs.get("temperature", self.temperature),
-            "max_tokens": kwargs.get("max_tokens", self.max_tokens),
+            "max_tokens": safe_max,
         }
+
 
         response = await self.client.chat.completions.create(**params)
         return response.choices[0].message.content
