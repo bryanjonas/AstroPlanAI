@@ -178,6 +178,107 @@ def main():
                 help="Altitude above sea level"
             )
 
+            st.markdown("### 🧭 Sky Coverage")
+
+            # Sky coverage presets
+            coverage_preset = st.selectbox(
+                "Coverage Preset",
+                options=[
+                    "All Clear",
+                    "North Only (Celestial Pole)",
+                    "South Blocked (Trees/Building)",
+                    "East & West Blocked",
+                    "Custom",
+                ],
+                index=0,
+                help="Quick presets for common obstruction patterns"
+            )
+
+            # Set defaults based on preset
+            if coverage_preset == "All Clear":
+                default_sectors = {"N": True, "NE": True, "E": True, "SE": True,
+                                 "S": True, "SW": True, "W": True, "NW": True}
+            elif coverage_preset == "North Only (Celestial Pole)":
+                default_sectors = {"N": True, "NE": True, "E": False, "SE": False,
+                                 "S": False, "SW": False, "W": False, "NW": True}
+            elif coverage_preset == "South Blocked (Trees/Building)":
+                default_sectors = {"N": True, "NE": True, "E": True, "SE": False,
+                                 "S": False, "SW": False, "W": True, "NW": True}
+            elif coverage_preset == "East & West Blocked":
+                default_sectors = {"N": True, "NE": False, "E": False, "SE": False,
+                                 "S": True, "SW": False, "W": False, "NW": False}
+            else:  # Custom
+                default_sectors = {"N": True, "NE": True, "E": True, "SE": True,
+                                 "S": True, "SW": True, "W": True, "NW": True}
+
+            st.markdown("Select which sky sectors are **clear** for imaging (unchecked = obstructed):")
+
+            # Create 8-sector compass selector with styling
+            st.markdown("""
+            <style>
+            .compass-grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 5px;
+                max-width: 250px;
+                margin: 10px auto;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+
+            # Create 8-sector compass selector
+            col_nw, col_n, col_ne = st.columns(3)
+            col_w, col_center, col_e = st.columns(3)
+            col_sw, col_s, col_se = st.columns(3)
+
+            with col_nw:
+                nw = st.checkbox("↖ NW", value=default_sectors["NW"], key="nw", help="Northwest (315°)")
+            with col_n:
+                n = st.checkbox("↑ N", value=default_sectors["N"], key="n", help="North (0°)")
+            with col_ne:
+                ne = st.checkbox("↗ NE", value=default_sectors["NE"], key="ne", help="Northeast (45°)")
+            with col_w:
+                w = st.checkbox("← W", value=default_sectors["W"], key="w", help="West (270°)")
+            with col_center:
+                st.markdown("<div style='text-align: center; padding: 10px; font-size: 24px;'>🔭</div>", unsafe_allow_html=True)
+            with col_e:
+                e = st.checkbox("→ E", value=default_sectors["E"], key="e", help="East (90°)")
+            with col_sw:
+                sw = st.checkbox("↙ SW", value=default_sectors["SW"], key="sw", help="Southwest (225°)")
+            with col_s:
+                s = st.checkbox("↓ S", value=default_sectors["S"], key="s", help="South (180°)")
+            with col_se:
+                se = st.checkbox("↘ SE", value=default_sectors["SE"], key="se", help="Southeast (135°)")
+
+            # Build list of available sectors
+            available_sectors = []
+            if n: available_sectors.append("N")
+            if ne: available_sectors.append("NE")
+            if e: available_sectors.append("E")
+            if se: available_sectors.append("SE")
+            if s: available_sectors.append("S")
+            if sw: available_sectors.append("SW")
+            if w: available_sectors.append("W")
+            if nw: available_sectors.append("NW")
+
+            if len(available_sectors) == 0:
+                st.error("⚠️ No sky sectors selected. Please select at least one clear direction.")
+            elif len(available_sectors) < 4:
+                st.info(f"🔭 **Limited Coverage**: {len(available_sectors)}/8 sectors clear ({', '.join(available_sectors)})")
+                st.caption("Targets will be filtered to available sectors only")
+            else:
+                st.success(f"✅ **Sky Coverage**: {len(available_sectors)}/8 sectors clear ({', '.join(available_sectors)})")
+
+            # Minimum altitude constraint
+            min_altitude = st.slider(
+                "Minimum Target Altitude (degrees above horizon)",
+                min_value=0,
+                max_value=60,
+                value=30,
+                step=5,
+                help="Ignore targets below this altitude (accounts for trees, buildings, atmospheric extinction)"
+            )
+
             st.markdown("### 📅 Date Range")
 
             # Date inputs
@@ -289,6 +390,10 @@ def main():
                 "sensor_width_mm": sensor_width,
                 "sensor_height_mm": sensor_height,
                 "mount": mount,
+                "sky_coverage": {
+                    "available_sectors": available_sectors,
+                    "min_altitude_deg": min_altitude,
+                },
             }
 
             # Run planning
@@ -492,6 +597,8 @@ def main():
         - ✅ Real-time weather forecasts
         - ✅ Astronomical calculations (twilight, moon phase, target visibility)
         - ✅ Equipment-aware recommendations
+        - ✅ **Sky Coverage Constraints** - Account for obstructions (trees, buildings) by sector
+        - ✅ **Altitude Filtering** - Set minimum altitude to avoid atmospheric extinction
         - ✅ Detailed imaging schedules with specific time windows
         - ✅ Dark sky location presets
         - ✅ Export plans to text files
