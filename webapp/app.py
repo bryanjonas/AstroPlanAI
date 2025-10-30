@@ -66,6 +66,7 @@ st.markdown("""
 # Common dark sky locations
 PRESET_LOCATIONS = {
     "Custom": {"lat": 0.0, "lon": 0.0, "elevation": 0},
+    "Springfield, VA": {"lat": 38.7893, "lon": -77.1872, "elevation": 100},
     "Santa Fe, NM": {"lat": 35.6870, "lon": -105.9378, "elevation": 2134},
     "Cherry Springs State Park, PA": {"lat": 41.6611, "lon": -77.8206, "elevation": 664},
     "Mauna Kea, HI": {"lat": 19.8207, "lon": -155.4681, "elevation": 4207},
@@ -142,7 +143,7 @@ def main():
             preset = st.selectbox(
                 "Quick Select",
                 options=list(PRESET_LOCATIONS.keys()),
-                index=1,  # Default to Santa Fe
+                index=1,  # Default to Springfield, VA
             )
 
             preset_loc = PRESET_LOCATIONS[preset]
@@ -181,8 +182,8 @@ def main():
 
             # Date inputs
             today = datetime.now().date()
-            default_start = today + timedelta(days=7)
-            default_end = default_start + timedelta(days=7)
+            default_start = today #+ timedelta(days=7)
+            default_end = default_start + timedelta(days=3)
 
             start_date = st.date_input(
                 "Start Date",
@@ -207,13 +208,13 @@ def main():
 
             camera = st.text_input(
                 "Camera",
-                value="Canon R6",
+                value="ASI585MC PRO",
                 help="Your camera model"
             )
 
             lens = st.text_input(
                 "Lens/Telescope",
-                value="400mm f/5.6",
+                value="RedCat 51 (250mm f/4.9)",
                 help="Lens or telescope description"
             )
 
@@ -221,7 +222,7 @@ def main():
                 "Focal Length (mm)",
                 min_value=1,
                 max_value=10000,
-                value=400,
+                value=250,
                 step=1,
                 help="Effective focal length"
             )
@@ -230,7 +231,7 @@ def main():
                 "Sensor Width (mm)",
                 min_value=1.0,
                 max_value=100.0,
-                value=36.0,
+                value=8.4,
                 step=0.1,
                 help="Physical sensor width"
             )
@@ -239,7 +240,7 @@ def main():
                 "Sensor Height (mm)",
                 min_value=1.0,
                 max_value=100.0,
-                value=24.0,
+                value=7.1,
                 step=0.1,
                 help="Physical sensor height"
             )
@@ -252,6 +253,7 @@ def main():
                     "Fixed tripod (no tracking)",
                     "Star tracker",
                 ],
+                index=0,  # Default to Star tracker
                 help="Mount and tracking capabilities"
             )
 
