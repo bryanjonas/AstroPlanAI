@@ -41,7 +41,7 @@ def create_weather_agent(
     Create the Weather analysis agent.
 
     Args:
-        client: AsyncOpenAI client configured for VLLM
+        client: AsyncOpenAI client configured for LLM API
         model: Model name to use
         temperature: Sampling temperature
         max_tokens: Maximum response tokens

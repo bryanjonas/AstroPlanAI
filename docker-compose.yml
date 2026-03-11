@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   # AstroPlanAI CLI application
-  # Connects to external VLLM server running on host machine
+  # Connects to external LLM server (OpenAI-compatible API)
   astroplanai:
     build:
       context: .
@@ -12,15 +12,13 @@ services:
       - ./workspace:/workspace
       - ./examples:/app/examples:ro
     environment:
-      # Use host.docker.internal to connect to VLLM running on host machine
-      # On Linux, use --add-host=host.docker.internal:host-gateway when running docker-compose
-      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://host.docker.internal:8000/v1}
-      - VLLM_API_KEY=${VLLM_API_KEY:-not_required}
-      - VLLM_MODEL=${VLLM_MODEL}
+      # Set LLM_BASE_URL to your LLM server endpoint
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://localhost:8000/v1}
+      - LLM_API_KEY=${LLM_API_KEY:-not_required}
+      - LLM_MODEL=${LLM_MODEL}
       - AGENT_TIMEOUT_SECONDS=${AGENT_TIMEOUT_SECONDS:-60}
       - AGENT_TEMPERATURE=${AGENT_TEMPERATURE:-0.7}
       - AGENT_MAX_TOKENS=${AGENT_MAX_TOKENS:-2048}
-    # For Linux: add host.docker.internal mapping to reach host machine
     extra_hosts:
       - "host.docker.internal:host-gateway"
     stdin_open: true
@@ -29,7 +27,7 @@ services:
     command: ["/bin/bash"]
 
   # AstroPlanAI Web UI (Streamlit)
-  # Connects to external VLLM server running on host machine
+  # Connects to external LLM server (OpenAI-compatible API)
   webapp:
     build:
       context: .
@@ -42,9 +40,10 @@ services:
       - ./webapp:/app/webapp
       - ./src:/app/src
     environment:
-      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://host.docker.internal:8000/v1}
-      - VLLM_API_KEY=${VLLM_API_KEY:-not_required}
-      - VLLM_MODEL=${VLLM_MODEL}
+      # Set LLM_BASE_URL to your LLM server endpoint
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://localhost:8000/v1}
+      - LLM_API_KEY=${LLM_API_KEY:-not_required}
+      - LLM_MODEL=${LLM_MODEL}
       - AGENT_TIMEOUT_SECONDS=${AGENT_TIMEOUT_SECONDS:-60}
       - AGENT_TEMPERATURE=${AGENT_TEMPERATURE:-0.7}
       - AGENT_MAX_TOKENS=${AGENT_MAX_TOKENS:-2048}

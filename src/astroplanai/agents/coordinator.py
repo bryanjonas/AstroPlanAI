@@ -1,8 +1,9 @@
 """Coordinator agent that orchestrates the multi-agent workflow."""
 
 from openai import AsyncOpenAI
-from typing import Dict, Any
+from typing import Dict, Any, Callable, Optional
 import asyncio
+from datetime import datetime, timedelta
 
 from .weather import create_weather_agent
 from .ephemeris import create_ephemeris_agent
@@ -23,17 +24,17 @@ class AstroPlanner:
         Initialize the AstroPlanner with configuration.
 
         Args:
-            config: Configuration dictionary with VLLM settings
+            config: Configuration dictionary with LLM settings
         """
         self.config = config
 
-        # Initialize OpenAI client for VLLM
+        # Support both new llm_* keys and legacy vllm_* keys
         self.client = AsyncOpenAI(
-            base_url=config["vllm_base_url"],
-            api_key=config.get("vllm_api_key", "not-needed"),
+            base_url=config.get("llm_base_url") or config.get("vllm_base_url"),
+            api_key=config.get("llm_api_key") or config.get("vllm_api_key", "not-needed"),
         )
 
-        self.model = config["vllm_model"]
+        self.model = config.get("llm_model") or config.get("vllm_model")
         self.temperature = config.get("temperature", 0.7)
         self.max_tokens = config.get("max_tokens", 4096)
 
@@ -91,6 +92,7 @@ class AstroPlanner:
         location: Dict[str, float],
         date_range: Dict[str, str],
         equipment: Dict[str, Any],
+        progress_callback: Optional[Callable[[str], None]] = None,
     ) -> str:
         """
         Create a comprehensive astrophotography session plan.
@@ -104,43 +106,120 @@ class AstroPlanner:
             Complete imaging session plan as formatted text
         """
         # Step 1: Gather data from parallel agents
-        print("🌤️  Fetching weather forecast...")
-        print("🌙  Calculating ephemeris data...")
-        print("🔭  Selecting optimal targets...")
+        self._log_progress("🌤️  Fetching weather forecast...", progress_callback)
+        self._log_progress("🌙  Calculating ephemeris data...", progress_callback)
+        self._log_progress("🔭  Selecting optimal targets...", progress_callback)
 
-        # Run data collection in parallel
-        weather_data, ephemeris_data, target_data = await asyncio.gather(
+        # Run data collection in parallel; return_exceptions=True allows partial failures
+        results = await asyncio.gather(
             self._get_weather_analysis(location, date_range),
             self._get_ephemeris_data(location, date_range),
             self._get_target_recommendations(location, date_range, equipment),
+            return_exceptions=True,
         )
 
+        weather_data, ephemeris_data, target_data = results
+
+        # Handle partial failures gracefully
+        if isinstance(weather_data, Exception):
+            weather_data = {"raw_forecast": {}, "analysis": f"Weather data unavailable: {weather_data}"}
+        if isinstance(ephemeris_data, Exception):
+            ephemeris_data = {"twilight": {}, "moon": {}, "analysis": f"Ephemeris data unavailable: {ephemeris_data}"}
+        if isinstance(target_data, Exception):
+            target_data = {"available_targets": [], "recommendations": f"Target data unavailable: {target_data}"}
+
         # Step 2: Consolidate inputs for scheduler
+        self._log_progress("📦  Consolidating agent outputs...", progress_callback)
         consolidated_input = self._consolidate_data(
             weather_data, ephemeris_data, target_data, location, date_range, equipment
         )
 
         # Step 3: Generate final schedule
-        print("\n📅 Generating optimal imaging schedule...")
+        self._log_progress("📅  Generating optimal imaging schedule...", progress_callback)
         schedule = await self._create_schedule(consolidated_input)
+        self._log_progress("✅  Planning complete!", progress_callback)
 
         return schedule
+
+    def _summarize_weather_for_llm(self, forecast: dict) -> list:
+        """Summarize hourly weather data into compact per-night summaries for the LLM."""
+        hourly = forecast.get("hourly", {})
+        times = hourly.get("time", [])
+        cloud = hourly.get("cloud_cover", [])
+        humidity = hourly.get("relative_humidity_2m", [])
+        wind = hourly.get("wind_speed_10m", [])
+
+        nights: Dict[str, Dict] = {}
+        for i, time_str in enumerate(times):
+            d = datetime.fromisoformat(time_str)
+            hour = d.hour
+            if hour >= 20:
+                date_key = d.date().isoformat()
+            elif hour <= 4:
+                date_key = (d.date() - timedelta(days=1)).isoformat()
+            else:
+                continue  # Skip daytime hours
+
+            if date_key not in nights:
+                nights[date_key] = {"cloud": [], "humidity": [], "wind": []}
+            if i < len(cloud):
+                nights[date_key]["cloud"].append(cloud[i])
+            if i < len(humidity):
+                nights[date_key]["humidity"].append(humidity[i])
+            if i < len(wind):
+                nights[date_key]["wind"].append(wind[i])
+
+        summaries = []
+        for date_key in sorted(nights.keys()):
+            n = nights[date_key]
+            if not n["cloud"]:
+                continue
+            cloud_avg = sum(n["cloud"]) / len(n["cloud"])
+            cloud_max = max(n["cloud"])
+            humidity_avg = sum(n["humidity"]) / len(n["humidity"]) if n["humidity"] else 0
+            wind_avg = sum(n["wind"]) / len(n["wind"]) if n["wind"] else 0
+
+            if cloud_avg < 20:
+                seeing = "excellent"
+            elif cloud_avg < 40:
+                seeing = "good"
+            elif cloud_avg < 60:
+                seeing = "fair"
+            else:
+                seeing = "poor"
+
+            summaries.append({
+                "date": date_key,
+                "cloud_pct_avg": round(cloud_avg),
+                "cloud_pct_max": round(cloud_max),
+                "humidity_avg": round(humidity_avg),
+                "wind_avg_kmh": round(wind_avg),
+                "seeing_score": seeing,
+            })
+
+        return summaries
 
     async def _get_weather_analysis(
         self, location: Dict[str, float], date_range: Dict[str, str]
     ) -> Dict[str, Any]:
         """Get weather forecast analysis from WeatherAgent."""
-        # Fetch raw weather data
+        # Calculate the number of days from the date range
+        days = max(
+            1,
+            (datetime.fromisoformat(date_range["end"]) - datetime.fromisoformat(date_range["start"])).days + 1,
+        )
         forecast = await self.weather_api.get_astronomy_forecast(
             latitude=location["lat"],
             longitude=location["lon"],
-            days=7,  # TODO: Calculate from date_range
+            days=min(days, 16),
         )
 
-        # Have the agent analyze it
+        # Summarize forecast to reduce token count for the LLM
+        night_summaries = self._summarize_weather_for_llm(forecast)
+
         prompt = f"""Analyze this astronomical weather forecast for location ({location['lat']}, {location['lon']}).
 
-Weather data: {forecast}
+Night summaries: {night_summaries}
 
 Provide:
 1. Quality score (0-100) for each night
@@ -156,7 +235,6 @@ Provide:
         self, location: Dict[str, float], date_range: Dict[str, str]
     ) -> Dict[str, Any]:
         """Get ephemeris calculations from EphemerisAgent."""
-        from datetime import datetime
         from astropy.coordinates import EarthLocation
 
         earth_loc = EarthLocation(
@@ -165,11 +243,13 @@ Provide:
             height=location.get("elevation", 0),
         )
 
-        # Calculate for each date in range (simplified for now)
         start_date = datetime.fromisoformat(date_range["start"])
 
-        twilight = self.ephemeris_calc.calculate_astronomical_twilight(earth_loc, start_date)
-        moon_info = self.ephemeris_calc.calculate_moon_info(earth_loc, start_date)
+        # Run both sync calculations in parallel threads to avoid blocking the event loop
+        twilight, moon_info = await asyncio.gather(
+            asyncio.to_thread(self.ephemeris_calc.calculate_astronomical_twilight, earth_loc, start_date),
+            asyncio.to_thread(self.ephemeris_calc.calculate_moon_info, earth_loc, start_date),
+        )
 
         prompt = f"""Analyze these ephemeris calculations for astrophotography planning:
 
@@ -194,8 +274,6 @@ Provide:
         self, location: Dict[str, float], date_range: Dict[str, str], equipment: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Get target recommendations from TargetSelectionAgent."""
-        from datetime import datetime
-
         # Get seasonal targets
         month = datetime.fromisoformat(date_range["start"]).month
         seasonal_targets = self.target_db.filter_by_season(month)
@@ -265,13 +343,23 @@ Generate a complete, actionable imaging plan with specific times and priorities.
         schedule = await self.scheduler_agent.generate(consolidated_input)
         return schedule
 
+    def _log_progress(
+        self,
+        message: str,
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> None:
+        """Log progress to console and optional callback."""
+        print(message)
+        if progress_callback:
+            progress_callback(message)
+
 
 def create_coordinator_agent(config: Dict[str, Any]) -> AstroPlanner:
     """
     Create the main coordinator that orchestrates all sub-agents.
 
     Args:
-        config: Configuration dictionary with VLLM and agent settings
+        config: Configuration dictionary with LLM and agent settings
 
     Returns:
         AstroPlanner instance

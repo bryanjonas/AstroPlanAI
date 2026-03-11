@@ -1,83 +1,93 @@
 # AstroPlanAI
 
-> Multi-agent astrophotography planning system using local VLLM models
+> Multi-agent astrophotography planning system powered by any OpenAI-compatible LLM
 
-AstroPlanAI is a sophisticated multi-agent system that helps astrophotographers plan optimal imaging sessions by analyzing weather forecasts, celestial mechanics, and equipment capabilities. It demonstrates advanced agent orchestration with local LLMs via VLLM (OpenAI-compatible API) using parallel and sequential workflows.
+AstroPlanAI orchestrates specialized AI agents to create optimal imaging session plans by analyzing weather forecasts, celestial mechanics, and equipment capabilities.
 
 ## Features
 
-- **Multi-Agent Architecture**: Specialized agents for weather, ephemeris, target selection, and scheduling
-- **Parallel Processing**: Weather, ephemeris, and target analysis run concurrently for efficiency
-- **Comprehensive Analysis**:
-  - Real-time weather forecasts (cloud cover, humidity, seeing, transparency)
-  - Astronomical calculations (moon phase, twilight times, target visibility)
-  - Intelligent target recommendations based on season, equipment, and conditions
-  - Detailed imaging schedules with specific time windows
-- **Equipment-Aware**: Factors in focal length, field of view, and mount capabilities
-- **Astronomy Tools**: Built on AstroPy and real weather APIs (Open-Meteo)
+- **Multi-Agent Architecture**: Specialized agents for weather, ephemeris, target selection, and scheduling run in parallel
+- **AI Target Search**: Natural language search across SIMBAD's astronomical database with AI imaging recommendations
+- **Sky Coverage Constraints**: Account for obstructions (trees, buildings) using an 8-sector compass with altitude filtering
+- **Real-Time Data**: Live weather forecasts (Open-Meteo) and astronomical calculations (AstroPy)
+- **Equipment-Aware**: Factors in focal length, field of view, sensor size, and mount capabilities
+- **Works With Any LLM**: vLLM, Ollama, LM Studio, OpenAI, or any OpenAI-compatible endpoint
 
 ## Architecture
 
-The system uses a coordinator pattern with specialized sub-agents:
-
 ```
 CoordinatorAgent
-├── WeatherAgent (analyzes atmospheric conditions)
-├── EphemerisAgent (calculates celestial mechanics)
-├── TargetSelectionAgent (recommends DSO targets)
-└── SchedulerAgent (synthesizes inputs into actionable plan)
+├── WeatherAgent        — analyzes atmospheric conditions (parallel)
+├── EphemerisAgent      — calculates twilight, moon phase, darkness window (parallel)
+├── TargetSelectionAgent — recommends DSO targets by season & equipment (parallel)
+└── SchedulerAgent      — synthesizes all inputs into an actionable plan (sequential)
 ```
 
-**Agent Flow:**
-1. **Parallel Stage**: Weather + Ephemeris + Target Selection run concurrently
-2. **Sequential Stage**: Scheduler receives consolidated data and generates plan
-3. **Output**: Detailed imaging schedule with times, targets, and recommendations
+## Quick Start
 
-## Installation
+### 1. Install dependencies
 
-### Prerequisites
-
-- Python 3.10 or higher
-- A running VLLM server (local or remote)
-- See [VLLM_SETUP.md](VLLM_SETUP.md) for detailed VLLM installation instructions
-
-### Setup
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd AstroPlanAI
-```
-
-2. Create a virtual environment:
 ```bash
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
-```bash
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -e .
 ```
 
-4. Configure VLLM connection:
+### 2. Configure your LLM endpoint
+
 ```bash
 cp .env.template .env
-# Edit .env and configure your VLLM endpoint and model
 ```
 
-Example `.env`:
+Edit `.env`:
+
 ```bash
-VLLM_BASE_URL=http://localhost:8000/v1
-VLLM_API_KEY=not_required_for_local
-VLLM_MODEL=meta-llama/Llama-3.1-8B-Instruct
+LLM_BASE_URL=http://localhost:8000/v1   # your LLM server
+LLM_API_KEY=not_required                # or your API key
+LLM_MODEL=your-model-name               # e.g. meta-llama/Llama-3.1-8B-Instruct
 ```
 
-**Need help setting up VLLM?** See [VLLM_SETUP.md](VLLM_SETUP.md) for a complete guide.
+AstroPlanAI works with **any OpenAI-compatible API**:
+- [vLLM](https://github.com/vllm-project/vllm) — fastest local inference (GPU recommended)
+- [Ollama](https://ollama.com) — easy local setup, no GPU required
+- [LM Studio](https://lmstudio.ai) — GUI-based desktop app
+- OpenAI, Groq, Together AI, Fireworks, or any other compatible provider
 
-## Usage
+### 3. Run
 
-### Basic Example
+```bash
+# Web interface (recommended)
+streamlit run webapp/app.py
+# Open http://localhost:8501
+
+# CLI example
+python examples/basic_plan.py
+
+# Test tools without an LLM
+python examples/simple_query.py
+```
+
+## Web Interface
+
+The Streamlit app at `webapp/app.py` has three tabs:
+
+### Plan Session
+- Location picker (presets + custom coordinates)
+- 8-sector sky coverage compass (mark obstructed directions)
+- Minimum altitude slider
+- Date range selector
+- Equipment configuration (camera, lens, focal length, sensor size, mount)
+- Generates a complete imaging schedule with per-night rankings
+
+### Quick Tools
+- **AI Target Search** — query SIMBAD by name or natural language; get field-of-view matching and AI imaging tips
+- **Ephemeris Calculator** — twilight times, moon phase, and darkness window for any location/date
+- **Target Database** — browse the built-in DSO catalog by season, name, or object type
+
+### About
+- System info, architecture overview, data sources
+
+## API Usage
 
 ```python
 from astroplanai.agents.coordinator import create_coordinator_agent
@@ -88,9 +98,9 @@ async def main():
     config = load_config()
 
     coordinator = create_coordinator_agent({
-        "vllm_base_url": config.vllm.base_url,
-        "vllm_api_key": config.vllm.api_key,
-        "vllm_model": config.vllm.model,
+        "llm_base_url": config.llm.base_url,
+        "llm_api_key": config.llm.api_key,
+        "llm_model": config.llm.model,
         "temperature": config.agent.temperature,
         "max_tokens": config.agent.max_tokens,
     })
@@ -102,28 +112,18 @@ async def main():
             "camera": "Canon R6",
             "lens": "400mm f/5.6",
             "focal_length_mm": 400,
+            "sensor_width_mm": 36,
+            "sensor_height_mm": 24,
             "mount": "Equatorial with tracking",
+            "sky_coverage": {
+                "available_sectors": ["N", "NE", "E", "SE", "S", "SW", "W", "NW"],
+                "min_altitude_deg": 30,
+            },
         }
     )
-
     print(schedule)
 
 asyncio.run(main())
-```
-
-### Run Example Scripts
-
-```bash
-# Web Interface (Recommended)
-streamlit run webapp/app.py
-# Then open http://localhost:8501 in your browser
-
-# Or use CLI examples:
-# Full planning demo
-python examples/basic_plan.py
-
-# Tools demonstration (without LLM agents)
-python examples/simple_query.py
 ```
 
 ## Project Structure
@@ -131,134 +131,61 @@ python examples/simple_query.py
 ```
 AstroPlanAI/
 ├── src/astroplanai/
-│   ├── agents/              # Agent definitions
-│   │   ├── coordinator.py   # Main orchestration agent
-│   │   ├── weather.py       # Weather analysis agent
-│   │   ├── ephemeris.py     # Celestial calculations agent
-│   │   ├── target_selection.py  # Target recommendation agent
-│   │   └── scheduler.py     # Schedule generation agent
-│   ├── tools/               # Core calculation tools
-│   │   ├── weather_api.py   # Weather API integration
+│   ├── agents/
+│   │   ├── coordinator.py       # Main orchestration
+│   │   ├── weather.py
+│   │   ├── ephemeris.py
+│   │   ├── target_selection.py
+│   │   ├── target_search.py     # Standalone AI target search
+│   │   └── scheduler.py
+│   ├── tools/
+│   │   ├── weather_api.py       # Open-Meteo integration
 │   │   ├── ephemeris_calculator.py  # AstroPy calculations
-│   │   └── target_database.py      # DSO target database
-│   └── config.py            # Configuration management
-├── webapp/                  # Streamlit web interface
-│   └── app.py              # Web application
-├── examples/                # CLI example scripts
-├── tests/                   # Unit tests
-├── pyproject.toml          # Project dependencies
-└── README.md               # This file
+│   │   ├── target_database.py   # Curated DSO database
+│   │   └── simbad_search.py     # Live SIMBAD queries
+│   └── config.py
+├── webapp/
+│   └── app.py                   # Streamlit web interface
+├── examples/
+│   ├── basic_plan.py            # Full multi-agent demo
+│   └── simple_query.py          # Tools-only demo (no LLM)
+├── tests/
+└── pyproject.toml
 ```
 
-## How It Works
+## Environment Variables
 
-### 1. Weather Analysis
-The `WeatherAgent` fetches forecasts from Open-Meteo's astronomy API and evaluates:
-- Cloud cover (total, low, mid, high altitude)
-- Humidity (for dew point and transparency)
-- Wind speed (telescope stability)
-- Quality scores for each night
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LLM_MODEL` | Yes | — | Model name (must match your server) |
+| `LLM_BASE_URL` | No | `http://localhost:8000/v1` | LLM API endpoint |
+| `LLM_API_KEY` | No | `not_required_for_local` | API key |
+| `AGENT_TIMEOUT_SECONDS` | No | `60` | Per-agent timeout |
+| `AGENT_TEMPERATURE` | No | `0.7` | LLM sampling temperature |
+| `AGENT_MAX_TOKENS` | No | `2048` | Max tokens per response |
 
-### 2. Ephemeris Calculations
-The `EphemerisAgent` uses AstroPy to compute:
-- Astronomical twilight times (18° below horizon)
-- Moon phase and illumination percentage
-- Target rise/set times and altitude windows
-- Darkness duration for imaging
+Legacy `VLLM_*` variable names are still accepted as fallback aliases.
 
-### 3. Target Selection
-The `TargetSelectionAgent` recommends deep-sky objects based on:
-- Seasonal visibility (best months for each target)
-- Equipment field of view (size matching)
-- Moon conditions (bright targets for full moon, faint for new moon)
-- Altitude constraints (prioritize high-altitude targets)
+## Docker
 
-### 4. Schedule Generation
-The `SchedulerAgent` synthesizes all inputs to create:
-- Per-night quality rankings
-- Specific imaging windows (start/end times)
-- Target timeline with rise/set and peak altitude
-- Priority recommendations (primary, secondary, backup)
-
-## Data Sources
-
-- **Weather**: [Open-Meteo API](https://open-meteo.com/) (free, no API key required for basic usage)
-- **Ephemeris**: [AstroPy](https://www.astropy.org/) (local calculations)
-- **Targets**: Curated database of popular Messier, NGC, and IC objects
-
-## Configuration
-
-Edit `.env` to customize:
-
-```bash
-# Required: VLLM connection
-VLLM_BASE_URL=http://localhost:8000/v1
-VLLM_API_KEY=not_required_for_local
-VLLM_MODEL=meta-llama/Llama-3.1-8B-Instruct
-
-# Optional: Agent behavior
-AGENT_TIMEOUT_SECONDS=60
-AGENT_TEMPERATURE=0.7
-AGENT_MAX_TOKENS=4096
-```
+See [DOCKER.md](DOCKER.md) for containerized deployment.
 
 ## Development
 
-### Running Tests
 ```bash
 pip install -e ".[dev]"
 pytest tests/
-```
-
-### Code Formatting
-```bash
 black src/ examples/
 ruff check src/ examples/
 ```
 
-## Roadmap
+## Data Sources
 
-- [ ] Add A2A (Agent-to-Agent) protocol support for distributed agents
-- [ ] Integrate real-time seeing forecasts (e.g., MeteoBlue)
-- [ ] Light pollution database integration (Bortle scale)
-- [ ] Field of view visualization and framing suggestions
-- [ ] Satellite prediction (ISS, Starlink avoidance)
-- [ ] Memory system for user preferences
-- [ ] Voice/chat interface for natural language queries
-- [ ] Streamlit dashboard for visual planning
-
-## Why Multi-Agent?
-
-This problem naturally decomposes into specialized reasoning tasks:
-- **Weather forecasting** requires domain knowledge of atmospheric conditions
-- **Ephemeris** requires precise astronomical calculations
-- **Target selection** requires contextual understanding of seasonal visibility and equipment
-- **Scheduling** requires synthesizing all inputs into an optimal plan
-
-By using separate agents, each can:
-- Maintain focused expertise
-- Be developed and tested independently
-- Run in parallel when possible
-- Be easily extended with new capabilities
-
-This is a perfect demonstration of multi-agent orchestration with local LLMs.
-
-## Contributing
-
-Contributions welcome! Areas of interest:
-- Additional weather API integrations
-- More sophisticated target databases (e.g., SIMBAD queries)
-- Equipment profile library
-- Calibration frame planning
-- Integration with telescope control software
+- **Weather**: [Open-Meteo API](https://open-meteo.com/) — free, no API key required
+- **Ephemeris**: [AstroPy](https://www.astropy.org/) — local calculations
+- **Object Search**: [SIMBAD](https://simbad.u-strasbg.fr/) — astronomical database
+- **Target Catalog**: Curated Messier, NGC, IC, and Caldwell objects
 
 ## License
 
-MIT License - see LICENSE file for details
-
-## Acknowledgments
-
-- LLM orchestration via [OpenAI Python SDK](https://github.com/openai/openai-python) with [VLLM](https://github.com/vllm-project/vllm)
-- Astronomical calculations by [AstroPy](https://www.astropy.org/)
-- Weather data from [Open-Meteo](https://open-meteo.com/)
-- Inspired by the astrophotography community
+MIT License — see LICENSE file for details

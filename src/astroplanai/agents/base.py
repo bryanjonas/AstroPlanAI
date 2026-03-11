@@ -20,7 +20,7 @@ class BaseAgent:
         Initialize a base agent.
 
         Args:
-            client: AsyncOpenAI client configured for VLLM
+            client: AsyncOpenAI client configured for LLM API
             name: Agent name (for logging/debugging)
             system_instruction: System prompt defining agent behavior
             model: Model name to use

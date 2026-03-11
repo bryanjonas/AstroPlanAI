@@ -15,8 +15,8 @@ class AgentConfig(BaseModel):
     max_tokens: int = Field(default=4096)
 
 
-class VLLMConfig(BaseModel):
-    """Configuration for VLLM endpoint."""
+class LLMConfig(BaseModel):
+    """Configuration for LLM endpoint (OpenAI-compatible API)."""
 
     base_url: str = Field(default="http://localhost:8000/v1")
     api_key: str = Field(default="not_required_for_local")
@@ -34,7 +34,7 @@ class Config(BaseModel):
     """Main configuration for AstroPlanAI."""
 
     agent: AgentConfig = Field(default_factory=AgentConfig)
-    vllm: VLLMConfig
+    llm: LLMConfig
     weather_api: WeatherAPIConfig = Field(default_factory=WeatherAPIConfig)
 
 
@@ -56,12 +56,24 @@ def load_config(env_path: Optional[Path] = None) -> Config:
     else:
         load_dotenv()
 
-    vllm_model = os.getenv("VLLM_MODEL")
-    if not vllm_model:
+    # Support both new LLM_* names and legacy VLLM_* names
+    llm_model = os.getenv("LLM_MODEL") or os.getenv("VLLM_MODEL")
+    if not llm_model:
         raise ValueError(
-            "VLLM_MODEL not found in environment. "
-            "Please copy .env.template to .env and configure your VLLM settings."
+            "LLM_MODEL not found in environment. "
+            "Please copy .env.template to .env and configure your LLM settings."
         )
+
+    llm_base_url = (
+        os.getenv("LLM_BASE_URL")
+        or os.getenv("VLLM_BASE_URL")
+        or "http://localhost:8000/v1"
+    )
+    llm_api_key = (
+        os.getenv("LLM_API_KEY")
+        or os.getenv("VLLM_API_KEY")
+        or "not_required_for_local"
+    )
 
     return Config(
         agent=AgentConfig(
@@ -69,10 +81,10 @@ def load_config(env_path: Optional[Path] = None) -> Config:
             temperature=float(os.getenv("AGENT_TEMPERATURE", "0.7")),
             max_tokens=int(os.getenv("AGENT_MAX_TOKENS", "4096")),
         ),
-        vllm=VLLMConfig(
-            base_url=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"),
-            api_key=os.getenv("VLLM_API_KEY", "not_required_for_local"),
-            model=vllm_model,
+        llm=LLMConfig(
+            base_url=llm_base_url,
+            api_key=llm_api_key,
+            model=llm_model,
         ),
         weather_api=WeatherAPIConfig(
             meteo_blue_api_key=os.getenv("METEO_BLUE_API_KEY"),

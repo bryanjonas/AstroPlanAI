@@ -13,7 +13,8 @@ class EphemerisCalculator:
 
     def __init__(self):
         """Initialize the ephemeris calculator."""
-        pass
+        self._twilight_cache: Dict[tuple, Dict] = {}
+        self._moon_cache: Dict[tuple, Dict] = {}
 
     # --------------------------------------------------------------
     def get_location(self, lat: float, lon: float, elevation: float = 0) -> EarthLocation:
@@ -34,9 +35,19 @@ class EphemerisCalculator:
         Returns:
             Dictionary with sunset, twilight_evening, twilight_morning, sunrise
         """
+        cache_key = (
+            round(float(location.lat.deg), 4),
+            round(float(location.lon.deg), 4),
+            round(float(location.height.to(u.m).value), 1),
+            date.date().isoformat(),
+        )
+        if cache_key in self._twilight_cache:
+            return self._twilight_cache[cache_key]
+
         # Use astropy Time object for better accuracy
         time_start = Time(date)
-        times = time_start + TimeDelta(np.arange(0, 24 * 60) * 60, format="sec")  # every minute
+        # Sample every 10 minutes (144 samples) — sufficient for twilight detection (~±5 min accuracy)
+        times = time_start + TimeDelta(np.arange(0, 144) * 600, format="sec")
 
         altaz_frame = AltAz(obstime=times, location=location)
         sun_altitudes = get_sun(times).transform_to(altaz_frame).alt.deg
@@ -57,18 +68,29 @@ class EphemerisCalculator:
                 if sunrise is None:
                     sunrise = times[i]
 
-        return {
+        result = {
             "sunset": sunset.datetime if sunset else None,
             "twilight_evening": twilight_evening.datetime if twilight_evening else None,
             "twilight_morning": twilight_morning.datetime if twilight_morning else None,
             "sunrise": sunrise.datetime if sunrise else None,
         }
+        self._twilight_cache[cache_key] = result
+        return result
 
     # --------------------------------------------------------------
     def calculate_moon_info(
         self, location: EarthLocation, date: datetime
     ) -> Dict[str, Any]:
         """Calculate moon phase and illumination."""
+        cache_key = (
+            round(float(location.lat.deg), 4),
+            round(float(location.lon.deg), 4),
+            round(float(location.height.to(u.m).value), 1),
+            date.date().isoformat(),
+        )
+        if cache_key in self._moon_cache:
+            return self._moon_cache[cache_key]
+
         time = Time(date)
         moon = get_body("moon", time)
         sun = get_sun(time)
@@ -81,12 +103,14 @@ class EphemerisCalculator:
         # Compute moon position for given location
         moon_altaz = moon.transform_to(AltAz(obstime=time, location=location))
 
-        return {
+        result = {
             "illumination_percent": float(illumination),
             "altitude_deg": float(moon_altaz.alt.deg),
             "azimuth_deg": float(moon_altaz.az.deg),
             "phase_angle_deg": float(phase_angle),
         }
+        self._moon_cache[cache_key] = result
+        return result
 
     # --------------------------------------------------------------
     def calculate_target_visibility(

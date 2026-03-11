@@ -17,6 +17,12 @@ class WeatherAPITool:
         """
         self.api_key = api_key
         self.base_url = "https://api.open-meteo.com/v1/forecast"
+        # Persistent client for connection reuse across requests
+        self.client = httpx.AsyncClient(timeout=30.0)
+
+    async def close(self):
+        """Close the persistent HTTP client."""
+        await self.client.aclose()
 
     async def get_astronomy_forecast(
         self, latitude: float, longitude: float, days: int = 7
@@ -50,10 +56,9 @@ class WeatherAPITool:
             "timezone": "auto",
         }
 
-        async with httpx.AsyncClient() as client:
-            response = await client.get(self.base_url, params=params)
-            response.raise_for_status()
-            return response.json()
+        response = await self.client.get(self.base_url, params=params)
+        response.raise_for_status()
+        return response.json()
 
     def parse_forecast_for_night(
         self, forecast_data: Dict, night_date: datetime

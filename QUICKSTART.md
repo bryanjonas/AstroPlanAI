@@ -1,73 +1,133 @@
 # Quick Start Guide
 
-Get AstroPlanAI running with your local VLLM server!
+Get AstroPlanAI running in a few minutes.
 
-## Step 1: Start VLLM Server
+## Step 1: Start an LLM Server
 
-**Don't have VLLM yet?** See [VLLM_SETUP.md](VLLM_SETUP.md) for detailed setup instructions.
+AstroPlanAI works with any OpenAI-compatible API endpoint. Pick whichever option suits you:
 
-**Quick start with Docker:**
+### Ollama (easiest, no GPU required)
+
+```bash
+# Install: https://ollama.com
+ollama pull llama3.1:8b
+ollama serve
+```
+
+Then set in `.env`:
+```bash
+LLM_BASE_URL=http://localhost:11434/v1
+LLM_API_KEY=ollama
+LLM_MODEL=llama3.1:8b
+```
+
+### vLLM (fastest, GPU recommended)
+
 ```bash
 docker run --runtime nvidia --gpus all \
     -v ~/.cache/huggingface:/root/.cache/huggingface \
-    -p 8000:8000 \
-    --ipc=host \
+    -p 8000:8000 --ipc=host \
     vllm/vllm-openai:latest \
     --model meta-llama/Llama-3.1-8B-Instruct \
-    --dtype auto \
-    --api-key not_required
+    --dtype auto --api-key not_required
 ```
 
-Wait for "Application startup complete" message.
+Then set in `.env`:
+```bash
+LLM_BASE_URL=http://localhost:8000/v1
+LLM_API_KEY=not_required
+LLM_MODEL=meta-llama/Llama-3.1-8B-Instruct
+```
 
-## Step 2: Set Up the Project
+### LM Studio (GUI app, no GPU required)
+
+1. Download [LM Studio](https://lmstudio.ai) and load a model
+2. Click **Start Server** (default port: 1234)
+
+Then set in `.env`:
+```bash
+LLM_BASE_URL=http://localhost:1234/v1
+LLM_API_KEY=lm-studio
+LLM_MODEL=<model name shown in LM Studio's API tab>
+```
+
+### OpenAI (no local hardware)
 
 ```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=sk-your-key
+LLM_MODEL=gpt-4o-mini
+```
 
-# Install dependencies
+---
+
+## Step 2: Install AstroPlanAI
+
+```bash
+python -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -e .
 
-# Configure API key
 cp .env.template .env
-nano .env  # or use your favorite editor
+# Edit .env with your LLM settings (see Step 1)
 ```
 
-Configure your VLLM connection in `.env`:
+---
+
+## Step 3: Run
+
+### Web Interface (recommended)
+
 ```bash
-VLLM_BASE_URL=http://localhost:8000/v1
-VLLM_API_KEY=not_required
-VLLM_MODEL=meta-llama/Llama-3.1-8B-Instruct
+streamlit run webapp/app.py
+# Open http://localhost:8501
 ```
 
-## Step 3: Run Your First Plan
+### CLI Demo
 
-### Option A: Full Multi-Agent Demo
 ```bash
+# Full multi-agent planning (requires LLM)
 python examples/basic_plan.py
-```
 
-This will:
-- Analyze weather for Santa Fe, NM for Nov 10-17, 2025
-- Calculate moon phase and twilight times
-- Recommend targets suitable for a 400mm lens
-- Generate a complete imaging schedule
-
-### Option B: Test Tools Without LLM
-```bash
+# Test tools only — no LLM needed
 python examples/simple_query.py
 ```
 
-This demonstrates:
-- Ephemeris calculations (sunset, moon phase)
-- Target visibility (when M31 is highest)
-- Target database queries (November targets)
+---
 
-## Step 4: Customize for Your Location
+## What You'll Get
 
-Edit `examples/basic_plan.py` and change:
+A planning session produces:
+
+- **Night rankings**: Quality scores (0–100) for each night in your date range
+- **Weather breakdown**: Cloud cover, humidity, wind per night
+- **Moon information**: Phase, illumination %, interference assessment
+- **Target recommendations**: 3–5 deep-sky objects ranked by suitability
+- **Imaging timeline**: Specific windows for each target's optimal altitude
+- **Practical advice**: Setup tips, backup targets, equipment-specific notes
+
+### Quality Score Reference
+
+| Score | Conditions |
+|-------|-----------|
+| 90–100 | Excellent — clear, low humidity, calm |
+| 70–89  | Good — mostly clear, usable |
+| 50–69  | Fair — some clouds, borderline |
+| < 50   | Poor — not recommended |
+
+### Moon Phase Reference
+
+| Illumination | Impact |
+|-------------|--------|
+| 0–20% | New moon — best for faint galaxies and nebulae |
+| 20–60% | Crescent — bright targets and emission nebulae |
+| 60–100% | Bright moon — planets and bright targets only |
+
+---
+
+## Customize for Your Location
+
+Edit `examples/basic_plan.py`:
 
 ```python
 location = {
@@ -85,87 +145,44 @@ equipment = {
     "camera": "Your Camera",
     "lens": "Your Lens",
     "focal_length_mm": FOCAL_LENGTH,
-    # ...
+    "sensor_width_mm": SENSOR_WIDTH,
+    "sensor_height_mm": SENSOR_HEIGHT,
+    "mount": "Equatorial with tracking",
 }
 ```
 
-## What You'll Get
-
-A detailed plan including:
-- **Night rankings**: Which nights have the best conditions (0-100 score)
-- **Weather breakdown**: Cloud cover, humidity, wind per night
-- **Moon information**: Phase, illumination %, interference assessment
-- **Target recommendations**: 3-5 deep-sky objects ranked by suitability
-- **Imaging timeline**: Specific times for each target's optimal window
-- **Practical advice**: Setup tips, backup targets, constraints
-
-## Understanding the Output
-
-### Weather Quality Scores
-- **90-100**: Excellent (clear, low humidity, calm)
-- **70-89**: Good (mostly clear, acceptable conditions)
-- **50-69**: Fair (some clouds, borderline usable)
-- **< 50**: Poor (not recommended for imaging)
-
-### Moon Phases
-- **0-20%**: New moon - best for faint galaxies and nebulae
-- **20-60%**: Crescent - bright targets and emission nebulae OK
-- **60-100%**: Bright moon - planets and bright galaxies only
-
-### Target Priority
-- **Primary**: Best target for the night (highest priority)
-- **Secondary**: Good alternative if primary sets early
-- **Backup**: Additional options if weather deteriorates
+---
 
 ## Troubleshooting
 
-### "VLLM_MODEL not found"
-- Make sure you copied `.env.template` to `.env`
-- Check that you configured your VLLM settings
-- Ensure `.env` is in the project root directory
+### "LLM_MODEL not found"
+- Confirm `.env` exists in the project root and contains `LLM_MODEL=...`
+- Make sure the line isn't commented out
 
 ### "Connection refused"
-- Make sure VLLM is running: `curl http://localhost:8000/health`
-- Check the port in VLLM_BASE_URL matches your VLLM server
-- See [VLLM_SETUP.md](VLLM_SETUP.md) for troubleshooting
-
-### "Import Error"
-- Make sure you installed: `pip install -e .`
-- Check your virtual environment is activated
-- Try: `pip install -r requirements.txt` as a backup
+- Verify your LLM server is running
+- Check the port in `LLM_BASE_URL` matches the actual server port
 
 ### Slow responses
-- VLLM needs a GPU for good performance
-- 8B models are faster than 70B models
-- Check GPU usage with `nvidia-smi`
-- See VLLM_SETUP.md for performance tuning
+- Smaller models (8B) are significantly faster than larger ones
+- For vLLM/GPU setups, check `nvidia-smi` for GPU utilization
 
-### Weather API Errors
+### Context length errors
+- Lower `AGENT_MAX_TOKENS` in `.env` to `1024` or `1536`
+- Reduce the date range to 3–5 days
+
+### Weather API errors
 - Open-Meteo is free and requires no API key
-- Check your internet connection
-- Verify latitude/longitude are valid (-90 to 90, -180 to 180)
+- Check your internet connection and that lat/lon values are valid
+
+---
 
 ## Next Steps
 
-1. **Explore the code**: Check out `src/astroplanai/agents/` to see how agents work
-2. **Modify agents**: Edit system instructions in agent files to change behavior
-3. **Add more targets**: Extend `target_database.py` with your favorite DSOs
-4. **Integrate your workflow**: Use the API in your own scripts
-5. **Contribute**: Add features from the roadmap in README.md
-
-## Learn More
-
-- **Full documentation**: See README.md
-- **VLLM setup guide**: See VLLM_SETUP.md for installation help
-- **Agent architecture**: Review `coordinator.py` to see orchestration
-- **Tools**: Check `tools/` directory for calculation utilities
-
-## Need Help?
-
-Open an issue on GitHub with:
-- Your Python version (`python --version`)
-- Error messages (full traceback)
-- What you were trying to do
-- Your location/date/equipment settings (if relevant)
+- **Web interface**: `streamlit run webapp/app.py` for a full GUI
+- **Docker**: See [DOCKER.md](DOCKER.md) for containerized deployment
+- **Extend agents**: Edit system instructions in `src/astroplanai/agents/` to change behavior
+- **Add targets**: Extend `target_database.py` with your favorite DSOs
+- **Full docs**: See [README.md](README.md)
 
 Happy imaging! 🌌🔭

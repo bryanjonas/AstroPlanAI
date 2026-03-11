@@ -2,34 +2,7 @@
 
 Streamlit-based web application for astrophotography session planning.
 
-## Features
-
-### Plan Session Tab
-- **Location Input**: Select from preset dark sky sites or enter custom coordinates
-- **Date Range**: Pick start and end dates for your imaging session
-- **Equipment Configuration**: Camera, lens/telescope, focal length, sensor size, mount type
-- **Generate Plan**: Click to create a detailed imaging schedule
-- **Export**: Download the generated plan as a text file
-
-### Quick Tools Tab
-- **Ephemeris Calculator**: Calculate twilight times, moon phase, and more for any date/location
-- **Target Database**: Search for deep-sky objects by season, name, or type
-
-### About Tab
-- System configuration and model information
-- Architecture overview
-- Data sources and credits
-
 ## Running Locally
-
-### With Docker (Recommended)
-
-```bash
-# From project root
-docker-compose up -d webapp
-
-# Access at http://localhost:8501
-```
 
 ### Without Docker
 
@@ -37,56 +10,74 @@ docker-compose up -d webapp
 # From project root
 pip install -e .
 streamlit run webapp/app.py
+# Open http://localhost:8501
 ```
 
-## Development
-
-### Hot Reload
-
-In development mode, Streamlit automatically reloads when you save changes:
+### With Docker
 
 ```bash
-# Use development compose file
-docker-compose -f docker-compose.dev.yml up -d webapp
+docker-compose up -d webapp
+# Open http://localhost:8501
 ```
 
-### File Structure
+## Tabs
 
-```
-webapp/
-├── app.py          # Main Streamlit application
-└── README.md       # This file
-```
+### Plan Session
+
+Configure your imaging session and generate a multi-agent plan:
+
+- **Location** — select from preset dark sky sites or enter custom coordinates
+- **Sky Coverage** — 8-sector compass (N/NE/E/SE/S/SW/W/NW); uncheck obstructed directions (trees, buildings)
+- **Minimum Altitude** — filter out targets below a set altitude (reduces atmospheric effects)
+- **Date Range** — start and end dates for the session
+- **Equipment** — camera, lens/telescope, focal length, sensor dimensions, mount type
+- **Generate Plan** — runs weather, ephemeris, and target agents in parallel, then synthesizes a schedule
+- **Download** — export the generated plan as a text file
+
+### Quick Tools
+
+#### AI Target Search
+- Enter an object name (`M33`, `NGC 7000`) or natural language query (`bright galaxies for autumn`)
+- Searches SIMBAD for exact matches; results are cached for 1 hour
+- Calculates field-of-view fit for your equipment
+- Gets AI imaging recommendations (exposure, filters, composition tips)
+- Falls back to AI suggestions if SIMBAD doesn't find the object
+
+#### Ephemeris Calculator
+- Enter location and date to get twilight times and moon information
+- Results are cached — repeat queries for the same location/date are instant
+
+#### Target Database Query
+- Browse the built-in DSO catalog by season, name, or object type
+- Covers Messier, NGC, IC, and Caldwell objects
+
+### About
+- System configuration (model, endpoint, temperature, max tokens)
+- Architecture overview
+- Data source credits
 
 ## Configuration
 
-The web app reads configuration from environment variables (`.env` file):
+The app reads from environment variables (`.env` file in project root):
 
-- `VLLM_BASE_URL`: VLLM endpoint
-- `VLLM_API_KEY`: API key if required
-- `VLLM_MODEL`: Model name
-- `AGENT_TEMPERATURE`: LLM sampling temperature
-- `AGENT_MAX_TOKENS`: Maximum tokens per response
+| Variable | Description |
+|----------|-------------|
+| `LLM_BASE_URL` | LLM API endpoint (any OpenAI-compatible server) |
+| `LLM_API_KEY` | API key (use `not_required` for local servers) |
+| `LLM_MODEL` | Model name — must match what your server reports |
+| `AGENT_TEMPERATURE` | LLM sampling temperature (default `0.7`) |
+| `AGENT_MAX_TOKENS` | Max tokens per agent response (default `2048`) |
 
-## UI Components
+## Caching
 
-### Location Presets
+The app uses Streamlit's caching to avoid redundant work:
 
-Includes popular dark sky locations:
-- Santa Fe, NM
-- Cherry Springs State Park, PA
-- Mauna Kea, HI
-- Big Bend National Park, TX
-- Death Valley, CA
-- Jasper National Park, Canada
+- `@st.cache_resource` — `TargetDatabase`, `EphemerisCalculator`, `SimbadSearch`, and the coordinator agent are created once and reused across all interactions
+- `@st.cache_data(ttl=3600)` — SIMBAD search results are cached for 1 hour per query
 
-### Caching
+## Adding Location Presets
 
-The coordinator agent is cached using `@st.cache_resource` to avoid re-initializing the OpenAI client on every interaction.
-
-## Customization
-
-To add more location presets, edit the `PRESET_LOCATIONS` dictionary in `app.py`:
+Edit `PRESET_LOCATIONS` in `app.py`:
 
 ```python
 PRESET_LOCATIONS = {
@@ -97,27 +88,19 @@ PRESET_LOCATIONS = {
 
 ## Troubleshooting
 
-### "Configuration error: VLLM_MODEL not found"
-- Ensure `.env` file exists in project root
-- Set `VLLM_MODEL` to match your VLLM server's loaded model
+### "Configuration error: LLM_MODEL not found"
+- Ensure `.env` exists in the project root with `LLM_MODEL` set
+- Restart Streamlit after editing `.env`
 
-### "Connection refused" errors
-- Verify VLLM server is running: `curl http://localhost:8000/health`
-- Check `VLLM_BASE_URL` in `.env`
-- For Docker: ensure `extra_hosts` is configured for `host.docker.internal`
+### "Connection refused" when generating a plan
+- Verify your LLM server is running
+- Check `LLM_BASE_URL` in `.env` points to the correct address and port
+- For Docker: use `host.docker.internal` instead of `localhost`
 
-### Slow response times
-- Planning sessions may take 30-60 seconds depending on VLLM model size
-- Use smaller models (8B) for faster responses
-- Check GPU utilization with `nvidia-smi`
-
-## Browser Compatibility
-
-Tested with:
-- Chrome/Chromium
-- Firefox
-- Safari
-- Edge
+### Slow plan generation
+- Planning sessions take 30–90 seconds depending on model size
+- Use smaller models (7–8B) for faster responses
+- Check GPU utilization with `nvidia-smi` if using a local GPU server
 
 ## Port Configuration
 
@@ -125,10 +108,4 @@ Default port is 8501. To change:
 
 ```bash
 streamlit run webapp/app.py --server.port=YOUR_PORT
-```
-
-Or set in Dockerfile.webapp:
-```dockerfile
-ENV STREAMLIT_SERVER_PORT=YOUR_PORT
-EXPOSE YOUR_PORT
 ```

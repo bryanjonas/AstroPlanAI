@@ -32,14 +32,14 @@ async def main():
         config = load_config()
     except ValueError as e:
         console.print(f"[red]Error loading configuration: {e}[/red]")
-        console.print("\n[yellow]Please create a .env file with VLLM settings[/yellow]")
+        console.print("\n[yellow]Please create a .env file with LLM settings[/yellow]")
         console.print("[yellow]You can copy .env.template to get started[/yellow]")
         return
 
     console.print(Panel.fit(
         "[bold cyan]AstroPlanAI[/bold cyan]\n"
         "Multi-Agent Astrophotography Planning System\n"
-        f"[dim]Using: {config.vllm.model}[/dim]",
+        f"[dim]Using: {config.llm.model}[/dim]",
         border_style="cyan"
     ))
 
@@ -71,9 +71,9 @@ async def main():
 
     # Create coordinator and run planning
     coordinator = create_coordinator_agent({
-        "vllm_base_url": config.vllm.base_url,
-        "vllm_api_key": config.vllm.api_key,
-        "vllm_model": config.vllm.model,
+        "llm_base_url": config.llm.base_url,
+        "llm_api_key": config.llm.api_key,
+        "llm_model": config.llm.model,
         "temperature": config.agent.temperature,
         "max_tokens": config.agent.max_tokens,
         "weather_api_key": config.weather_api.open_meteo_api_key,

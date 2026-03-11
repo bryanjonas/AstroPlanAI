@@ -9,6 +9,10 @@ import asyncio
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+import inspect
+
+import nest_asyncio
+nest_asyncio.apply()
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -19,6 +23,18 @@ from astroplanai.tools.ephemeris_calculator import EphemerisCalculator
 from astroplanai.tools.target_database import TargetDatabase
 from astropy.coordinates import EarthLocation, AltAz, SkyCoord, get_sun, get_body
 import astropy.units as u
+
+
+def run_async(coro):
+    """Run an async coroutine from sync code, compatible with Streamlit's event loop."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            return loop.run_until_complete(coro)
+        else:
+            return asyncio.run(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
 
 
 # Page config
@@ -83,7 +99,7 @@ def load_app_config():
         return config
     except Exception as e:
         st.error(f"Configuration error: {e}")
-        st.info("Please ensure .env file is configured with VLLM_MODEL")
+        st.info("Please ensure .env file is configured with LLM_MODEL")
         st.stop()
 
 
@@ -93,9 +109,9 @@ def get_coordinator():
     config = load_app_config()
 
     coordinator = create_coordinator_agent({
-        "vllm_base_url": config.vllm.base_url,
-        "vllm_api_key": config.vllm.api_key,
-        "vllm_model": config.vllm.model,
+        "llm_base_url": config.llm.base_url,
+        "llm_api_key": config.llm.api_key,
+        "llm_model": config.llm.model,
         "temperature": config.agent.temperature,
         "max_tokens": config.agent.max_tokens,
         "weather_api_key": config.weather_api.open_meteo_api_key,
@@ -104,12 +120,95 @@ def get_coordinator():
     return coordinator, config
 
 
+@st.cache_resource
+def get_target_database():
+    """Get TargetDatabase instance (cached across sessions)."""
+    return TargetDatabase()
+
+
+@st.cache_resource
+def get_ephemeris_calculator():
+    """Get EphemerisCalculator instance (cached across sessions)."""
+    return EphemerisCalculator()
+
+
+@st.cache_resource
+def get_simbad_search():
+    """Get SimbadSearch instance with persistent HTTP client (cached across sessions)."""
+    from astroplanai.tools.simbad_search import SimbadSearch
+    return SimbadSearch()
+
+
+@st.cache_data(ttl=3600)
+def cached_simbad_search(query: str):
+    """Search SIMBAD with 1-hour result cache to avoid duplicate network calls."""
+    simbad = get_simbad_search()
+    return run_async(simbad.search_object(query))
+
+
 async def run_planning(location, date_range, equipment):
     """Run the planning session asynchronously."""
     coordinator, _ = get_coordinator()
 
-    with st.spinner("🤖 Agents are analyzing conditions..."):
-        schedule = await coordinator.plan_session(location, date_range, equipment)
+    status_container = None
+    render_placeholder_fn = None
+    progress_messages = []
+
+    if hasattr(st, "status"):
+        status_container = st.status(
+            "🤖 Agents are analyzing conditions...",
+            state="running",
+            expanded=True,
+        )
+
+        def progress_callback(message: str):
+            status_container.write(message)
+
+    else:
+        placeholder = st.empty()
+
+        def render_placeholder(state: str = "info", label: str = "🤖 Agents are analyzing conditions..."):
+            body_lines = [label]
+            if progress_messages:
+                body_lines.extend(f"- {msg}" for msg in progress_messages)
+            getattr(placeholder, state)("\n".join(body_lines))
+
+        render_placeholder_fn = render_placeholder
+
+        def progress_callback(message: str):
+            progress_messages.append(message)
+            render_placeholder_fn()
+
+        render_placeholder_fn()
+
+    progress_callback("Initializing multi-agent workflow...")
+
+    plan_session = coordinator.plan_session
+    supports_progress = "progress_callback" in inspect.signature(plan_session).parameters
+
+    if not supports_progress:
+        progress_callback("Coordinator does not support granular updates yet; running without live steps.")
+
+    try:
+        if supports_progress:
+            schedule = await plan_session(
+                location, date_range, equipment, progress_callback=progress_callback
+            )
+        else:
+            schedule = await plan_session(location, date_range, equipment)
+    except Exception as e:
+        if status_container is not None:
+            status_container.update(label="❌ Planning failed", state="error")
+            status_container.write(str(e))
+        elif render_placeholder_fn:
+            progress_messages.append(f"Error: {e}")
+            render_placeholder_fn(state="error", label="❌ Planning failed")
+        raise
+    else:
+        if status_container is not None:
+            status_container.update(label="✅ Planning complete", state="complete")
+        elif render_placeholder_fn:
+            render_placeholder_fn(state="success", label="✅ Planning complete")
 
     return schedule
 
@@ -125,7 +224,7 @@ def main():
     _, config = get_coordinator()
 
     st.sidebar.markdown("### System Configuration")
-    st.sidebar.info(f"**Model:** {config.vllm.model}\n\n**Endpoint:** {config.vllm.base_url}")
+    st.sidebar.info(f"**Model:** {config.llm.model}\n\n**API Endpoint:** {config.llm.base_url}")
 
     # Create tabs
     tab1, tab2, tab3 = st.tabs(["📅 Plan Session", "🔧 Quick Tools", "ℹ️ About"])
@@ -398,7 +497,7 @@ def main():
 
             # Run planning
             try:
-                schedule = asyncio.run(run_planning(location, date_range, equipment))
+                schedule = run_async(run_planning(location, date_range, equipment))
 
                 st.markdown("---")
                 st.markdown("### 📋 Imaging Plan")
@@ -446,11 +545,161 @@ def main():
 
         tool_choice = st.radio(
             "Select Tool",
-            options=["Ephemeris Calculator", "Target Database Query"],
+            options=["AI Target Search", "Ephemeris Calculator", "Target Database Query"],
             horizontal=True
         )
 
-        if tool_choice == "Ephemeris Calculator":
+        if tool_choice == "AI Target Search":
+            st.markdown("#### AI-Powered Target Search")
+            st.caption("Search millions of astronomical objects using SIMBAD database + AI recommendations")
+
+            search_query = st.text_input(
+                "What would you like to image?",
+                placeholder="e.g., 'M33', 'bright galaxies in autumn', 'nebulae for 250mm scope'",
+                help="Natural language search or specific object name"
+            )
+
+            col1, col2 = st.columns(2)
+            with col1:
+                search_focal_length = st.number_input(
+                    "Your Focal Length (mm)",
+                    min_value=1,
+                    max_value=10000,
+                    value=250,
+                    help="For field of view calculations"
+                )
+            with col2:
+                search_sensor_width = st.number_input(
+                    "Sensor Width (mm)",
+                    min_value=1.0,
+                    max_value=100.0,
+                    value=8.4,
+                    help="For field of view calculations"
+                )
+
+            if st.button("🔍 Search", key="ai_search"):
+                if not search_query:
+                    st.warning("Please enter a search query")
+                else:
+                    with st.spinner("Searching astronomical databases..."):
+                        try:
+                            # Search SIMBAD (results cached for 1 hour)
+                            simbad_result = cached_simbad_search(search_query)
+
+                            if simbad_result:
+                                st.success(f"✅ Found in SIMBAD: {simbad_result['name']}")
+
+                                col1, col2 = st.columns(2)
+
+                                with col1:
+                                    st.markdown("**Object Information**")
+                                    st.write(f"**Name:** {simbad_result['name']}")
+                                    st.write(f"**Type:** {simbad_result['object_type']}")
+                                    if simbad_result.get('magnitude'):
+                                        st.write(f"**Magnitude:** {simbad_result['magnitude']:.1f}")
+                                    if simbad_result.get('size_arcmin'):
+                                        st.write(f"**Size:** {simbad_result['size_arcmin']:.1f} arcmin")
+
+                                with col2:
+                                    st.markdown("**Coordinates**")
+                                    if simbad_result.get('ra') and simbad_result.get('dec'):
+                                        st.write(f"**RA:** {simbad_result['ra']:.4f}°")
+                                        st.write(f"**Dec:** {simbad_result['dec']:.4f}°")
+
+                                        # Calculate field of view
+                                        sensor_diag = (search_sensor_width**2 + (search_sensor_width*0.75)**2)**0.5
+                                        fov_deg = 2 * (180/3.14159) * (sensor_diag / (2*search_focal_length)) * 57.3
+                                        fov_arcmin = fov_deg * 60
+
+                                        st.markdown("**Field of View Match**")
+                                        if simbad_result.get('size_arcmin'):
+                                            obj_size = simbad_result['size_arcmin']
+                                            if obj_size < fov_arcmin * 0.2:
+                                                st.info(f"🔭 Object is small ({obj_size:.1f}') compared to your FOV ({fov_arcmin:.1f}'). Consider higher magnification.")
+                                            elif obj_size > fov_arcmin * 1.5:
+                                                st.warning(f"⚠️ Object ({obj_size:.1f}') is larger than your FOV ({fov_arcmin:.1f}'). You'll capture only part of it.")
+                                            else:
+                                                st.success(f"✅ Good fit! Object ({obj_size:.1f}') fits well in your FOV ({fov_arcmin:.1f}').")
+
+                                # Now get AI recommendations
+                                st.markdown("---")
+                                st.markdown("**AI Imaging Recommendations**")
+
+                                with st.spinner("Getting AI recommendations..."):
+                                    from astroplanai.agents.target_search import create_target_search_agent
+
+                                    coordinator, config = get_coordinator()
+                                    client = coordinator.client
+
+                                    search_agent = create_target_search_agent(
+                                        client,
+                                        config.llm.model,
+                                        temperature=0.7,
+                                        max_tokens=1024,
+                                    )
+
+                                    equipment_context = f"""
+Object: {simbad_result['name']} ({simbad_result['object_type']})
+Magnitude: {simbad_result.get('magnitude', 'unknown')}
+Size: {simbad_result.get('size_arcmin', 'unknown')} arcmin
+Your Equipment: {search_focal_length}mm focal length, {search_sensor_width}mm sensor
+Your FOV: {fov_arcmin:.1f} arcmin
+"""
+
+                                    prompt = f"""Provide imaging recommendations for this target:
+
+{equipment_context}
+
+Include:
+1. Imaging difficulty (easy/moderate/challenging) and why
+2. Recommended exposure time and ISO/gain settings
+3. Best filters to use (if any)
+4. Composition tips for this target
+5. Common challenges when imaging this object
+
+Keep it concise and practical."""
+
+                                    recommendations = run_async(search_agent.generate(prompt))
+                                    st.markdown(recommendations)
+
+                            else:
+                                # Object not found in SIMBAD, use AI to help
+                                st.info("💡 Object not found in SIMBAD. Using AI to help with your query...")
+
+                                from astroplanai.agents.target_search import create_target_search_agent
+
+                                coordinator, config = get_coordinator()
+                                client = coordinator.client
+
+                                search_agent = create_target_search_agent(
+                                    client,
+                                    config.llm.model,
+                                    temperature=0.7,
+                                    max_tokens=1024,
+                                )
+
+                                prompt = f"""Help find astronomical targets matching this query: "{search_query}"
+
+Equipment: {search_focal_length}mm focal length, {search_sensor_width}mm sensor width
+
+Suggest 3-5 suitable targets with:
+1. Object name and type
+2. Approximate coordinates
+3. Brightness and size
+4. Why it matches the query
+5. Imaging difficulty
+
+Be specific and practical."""
+
+                                recommendations = run_async(search_agent.generate(prompt))
+                                st.markdown(recommendations)
+
+                        except Exception as e:
+                            st.error(f"Search error: {e}")
+                            with st.expander("View error details"):
+                                st.exception(e)
+
+        elif tool_choice == "Ephemeris Calculator":
             st.markdown("#### Calculate astronomical events for a specific night")
 
             col1, col2 = st.columns(2)
@@ -465,7 +714,7 @@ def main():
 
             if st.button("Calculate", key="calc_button"):
                 try:
-                    calc = EphemerisCalculator()
+                    calc = get_ephemeris_calculator()
                     location = EarthLocation(
                         lat=calc_lat * u.deg,
                         lon=calc_lon * u.deg,
@@ -497,7 +746,7 @@ def main():
         else:  # Target Database Query
             st.markdown("#### Search for deep-sky objects")
 
-            db = TargetDatabase()
+            db = get_target_database()
 
             query_type = st.radio(
                 "Query Type",
@@ -591,14 +840,15 @@ def main():
         ### Architecture
 
         - **Multi-Agent Orchestration**: Parallel processing of weather, ephemeris, and target data
-        - **Local LLM**: Powered by VLLM for privacy and control
+        - **Local or Remote LLM**: Works with any OpenAI-compatible API endpoint
         - **Real Data**: Uses AstroPy for calculations and Open-Meteo for weather
 
         ### Features
 
+        - ✅ **AI Target Search** - Search millions of objects via SIMBAD + get AI imaging recommendations
         - ✅ Real-time weather forecasts
         - ✅ Astronomical calculations (twilight, moon phase, target visibility)
-        - ✅ Equipment-aware recommendations
+        - ✅ Equipment-aware recommendations with field-of-view matching
         - ✅ **Sky Coverage Constraints** - Account for obstructions (trees, buildings) by sector
         - ✅ **Altitude Filtering** - Set minimum altitude to avoid atmospheric extinction
         - ✅ Detailed imaging schedules with specific time windows
@@ -612,9 +862,9 @@ def main():
         _, config = get_coordinator()
 
         st.info(f"""
-        **VLLM Model:** {config.vllm.model}
+        **Model:** {config.llm.model}
 
-        **Endpoint:** {config.vllm.base_url}
+        **API Endpoint:** {config.llm.base_url}
 
         **Temperature:** {config.agent.temperature}
 
